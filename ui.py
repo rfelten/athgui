@@ -26,14 +26,17 @@ import logging
 import multiprocessing as mp
 import queue
 from athspectralscan import AthSpectralScanner, AthSpectralScanDecoder, DataHub
+from yanh.airtime import AirtimeCalculator
 logger = logging.getLogger(__name__)
+logger.level = logging.DEBUG
+logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class SimpleUI(object):
 
     (view_unknown, view_cs, view_bg, view_hm) = range(-1, 3)
 
-    def __init__(self, athscanner, queue_in):
+    def __init__(self, athscanner, ath_queue_in, airtime_queue_in):
         pygame.init()
         pygame.mouse.set_visible(1)
         pygame.key.set_repeat(20, 100)  # wait 20ms, then event every 100ms
@@ -41,7 +44,7 @@ class SimpleUI(object):
         self.caption_prefix = "Ath GUI"
         self.height = 600
         #self.width = 800
-        self.tu_per_px = 230 #115 # 225  # default: 115 for 8/2/16/0
+        self.tu_per_px = 225  # default: 115 for 8/2/16/0
         #self.width = (100 * 1000) // (self.tu_per_px-3) -2 # try to align for beacons
         self.width = (1024 * 100) // self.tu_per_px   # try to align for beacons
         self.screen = pygame.display.set_mode((self.width, self.height))
@@ -56,14 +59,15 @@ class SimpleUI(object):
 
         self.color_map = self.gen_pallete()
 
-        self.freq_min = 2397.0
+        self.freq_min = 2397.0  # FIXME: get from sensor
         self.freq_max = 2482.0
         self.power_min = -130.0
         self.power_max = -20.0
         self.grid_wide_freq = 5  # Mhz
         self.grid_wide_pwr = 10  # dBm
 
-        self.input_queue = queue_in
+        self.ath_queue_in = ath_queue_in
+        self.airtime_queue_in = airtime_queue_in
 
         self.heatmap = {}
         self.last_freq_cf = self.freq_max
@@ -77,6 +81,7 @@ class SimpleUI(object):
 
         self.pwr_time_data = []
         self.tsf_start = 0
+        logger.debug("ui setup done")
 
         self.sensor = None  # attach sensor instance here
         self.current_view = SimpleUI.view_unknown
@@ -227,27 +232,14 @@ class SimpleUI(object):
                     sample_count = 255
                 self.sensor.set_spectral_count(sample_count)
                 self.update_caption()
-            """
-        elif key == pygame.K_d:
-            if self.sensor.dumping:
-                self.sensor.dump_stop()
-            else:
-                self.sensor.dump_start()
-
-        # Switch off UI to save CPU resources
-        elif key == pygame.K_u:
-            self.ui_update = not self.ui_update
-            if self.ui_update:
-                self.sensor.output_queue = self.input_queue
-            else:
-                self.sensor.output_queue = None
-            self.flush_data = True"""
-
         # Toggle HT20/HT40 mode
         elif key == pygame.K_m:
             self.flush_data = True
-            logger.info("Toggle HT mode")
-            self.sensor.ath.toggle_HTMode()
+            logger.info("Toggle HT mode from %s " % self.sensor.current_ht_mode)
+            if self.sensor.current_ht_mode == "HT20":
+                self.sensor.set_HT_mode("HT40")
+            else:
+                self.sensor.set_HT_mode("HT20")
 
         # ignore unknown key
         else:
@@ -262,7 +254,7 @@ class SimpleUI(object):
             caption += " - BG Mode on Ch %d (%d MHz)" % (self.sensor.current_chan, self.sensor.current_freq)
         elif self.current_view == SimpleUI.view_hm:
             caption += " - Heatmap Mode on CH %d (%d MHz)" % (self.sensor.current_chan, self.sensor.current_freq)
-        caption += " "+self.sensor.channel_mode+""
+        caption += " "+self.sensor.current_ht_mode+""
         if self.current_view == SimpleUI.view_hm:
             caption += " %d us/px" % self.tu_per_px
         #if self.sensor.dumping:
@@ -295,8 +287,12 @@ class SimpleUI(object):
         return 0
 
     def flush(self):
-        while not self.input_queue.empty():
-            self.input_queue.get()
+        logger.debug("flush() qlen ath: %d" % self.ath_queue_in.qsize())
+        while not self.ath_queue_in.empty():
+            self.ath_queue_in.get()
+        logger.debug("flush() qlen air: %d" % self.airtime_queue_in.qsize())
+        while not self.airtime_queue_in.empty():
+            self.airtime_queue_in.get()
         self.tsf_start = 0
         self.heatmap = {}
 
@@ -364,11 +360,10 @@ class SimpleUI(object):
     def update_data(self):
         self.bg_sample_count = 0
         hmp = self.heatmap
-        #while not self.input_queue.empty():
         while True:
             #print(work_queue.qsize())
             try:
-                (ts, data) = work_queue.get(block=False)
+                (ts, data) = self.ath_queue_in.get(block=False)
             except queue.Empty:
                 break
 
@@ -407,9 +402,15 @@ class SimpleUI(object):
                 (tsf, freq_cf, noise, rssi, pwr) = data
                 pwr_channel = self.pwr_of_channel(pwr)
                 self.pwr_time_data.append((tsf, -1, pwr_channel, None))
-                #elif type == 1:
-                #    (tsf, length, pwr, _, is_fcs_bad) = data
-                #    self.pwr_time_data.append((tsf, length, pwr, is_fcs_bad))
+
+        while True:
+            try:
+                data = self.airtime_queue_in.get(block=False)
+            except queue.Empty:
+                break
+            if self.current_view is SimpleUI.view_hm:
+                (tsf, length, pwr, _, is_fcs_bad, _) = data
+                self.pwr_time_data.append((tsf, length, pwr, is_fcs_bad))
 
         self.heatmap = hmp
 
@@ -493,27 +494,34 @@ class SimpleUI(object):
         self.pwr_time_data = []
 
 if __name__ == '__main__':
-     work_queue = mp.Queue()
+     athss_queue = mp.Queue()
+     airtime_queue = mp.Queue()
      scanner = AthSpectralScanner(interface=sys.argv[1])
+     airtimecalc = AirtimeCalculator(monitor_interface=sys.argv[1], output_queue=airtime_queue)
 
      decoder = AthSpectralScanDecoder()
      decoder.set_number_of_processes(4)
-     decoder.set_output_queue(work_queue)
+     decoder.set_output_queue(athss_queue)
      # decoder.disable_pwr_decoding(True)   # enable to extract "metadata": time (TSF), frequency, etc  (much faster!)
      decoder.start()
 
      hub = DataHub(scanner=scanner, decoder=decoder)
+     #scanner.set_channel(6)
      scanner.set_mode("background")
-     #scanner.set_channel(1)
-     scanner.set_frequency(2412)
+     scanner.set_spectral_count(8)
+     scanner.set_spectral_period(32)
+     scanner.set_spectral_fft_period(2)
+     scanner.set_spectral_short_repeat(1)
      # Start to read from spectral_scan0
      hub.start()
      # Start to acquire dara
+     airtimecalc.start()
      scanner.start()
 
-     ui = SimpleUI(athscanner=scanner, queue_in=work_queue)
+     ui = SimpleUI(athscanner=scanner, ath_queue_in=athss_queue, airtime_queue_in=airtime_queue)
      ui.main_loop()  # UI takes care of events
 
      # Tear down hardware
      scanner.stop()
      hub.stop()
+     airtimecalc.stop()
