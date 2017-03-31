@@ -361,33 +361,26 @@ class SimpleUI(object):
         self.bg_sample_count = 0
         hmp = self.heatmap
         while True:
-            #print(work_queue.qsize())
             try:
                 (ts, data) = self.ath_queue_in.get(block=False)
             except queue.Empty:
                 break
 
             if self.current_view is SimpleUI.view_cs or self.current_view is SimpleUI.view_bg:
-
                 (tsf, freq_cf, noise, rssi, pwr) = data
-
                 if self.current_view is SimpleUI.view_cs:
                     if freq_cf < self.last_freq_cf:
                         self.clean_screen = True
                     self.last_freq_cf = freq_cf
-
                 elif self.current_view is SimpleUI.view_bg:
                     if tsf > self.save_tsf + self.persistence_window:
                         self.save_tsf = tsf + self.persistence_window
                         self.clean_screen = True
-
                     if self.bg_sample_count == self.bg_sample_count_limit:
                         continue
                     self.bg_sample_count += 1
                 else:
-                    # unknown mode, ignore
                     continue
-
                 for freq_sc, sigval in pwr.items():
                     if sigval <= self.power_min:  # skip invisible pixel
                         continue
@@ -397,7 +390,6 @@ class SimpleUI(object):
                     mody = math.ceil(sigval*2.0)/2.0
                     arr.setdefault(mody, 0)  # pwr level is unknown
                     arr[mody] += 1.0  # count how often, a pwr level occurs per freq_sc
-
             elif self.current_view is SimpleUI.view_hm:
                 (tsf, freq_cf, noise, rssi, pwr) = data
                 pwr_channel = self.pwr_of_channel(pwr)
@@ -411,7 +403,6 @@ class SimpleUI(object):
             if self.current_view is SimpleUI.view_hm:
                 (tsf, length, pwr, _, is_fcs_bad, _) = data
                 self.pwr_time_data.append((tsf, length, pwr, is_fcs_bad))
-
         self.heatmap = hmp
 
     def pwr_of_channel(self, pwr_per_subcarrier):
@@ -419,8 +410,11 @@ class SimpleUI(object):
         rssi_sum = 0
         for freq, pwr in pwr_per_subcarrier.items():
             rssi_sum += 10 ** (pwr / 10)
-        rssi_channel = 10 * math.log10(rssi_sum)
-        return rssi_channel
+        if rssi_sum != 0:
+            rssi_channel = 10 * math.log10(rssi_sum)
+            return rssi_channel
+        else:
+            return -200   # fixme: better idea?
 
     def data_to_screen_freq(self):
         zmax = 0
@@ -500,18 +494,14 @@ if __name__ == '__main__':
      airtimecalc = AirtimeCalculator(monitor_interface=sys.argv[1], output_queue=airtime_queue)
 
      decoder = AthSpectralScanDecoder()
-     decoder.set_number_of_processes(4)
+     decoder.set_number_of_processes(1)
      decoder.set_output_queue(athss_queue)
-     # decoder.disable_pwr_decoding(True)   # enable to extract "metadata": time (TSF), frequency, etc  (much faster!)
      decoder.start()
 
      hub = DataHub(scanner=scanner, decoder=decoder)
-     #scanner.set_channel(6)
      scanner.set_mode("background")
-     scanner.set_spectral_count(8)
-     scanner.set_spectral_period(32)
-     scanner.set_spectral_fft_period(2)
-     scanner.set_spectral_short_repeat(1)
+     scanner.set_channel(1)
+
      # Start to read from spectral_scan0
      hub.start()
      # Start to acquire dara
