@@ -138,9 +138,9 @@ class SimpleUI(object):
 
             if not self.ui_update:
                 self.draw_centered_text(
-                        "(UI Update Disabled)", self.width/2, self.height/2, (200, 200, 200), font_size=40)
+                    "(UI Update Disabled)", self.width/2, self.height/2, (200, 200, 200), font_size=40)
 
-            #self.clock.tick(FPS)
+                #self.clock.tick(FPS)
 
 
         # not running anymore
@@ -308,14 +308,14 @@ class SimpleUI(object):
                 sf = (128.0 - i) / 128.0
                 sf2 = i / 128.0
                 colors[i] = (start_col[0] * sf + mid_col[0] * sf2,
-                            start_col[1] * sf + mid_col[1] * sf2,
-                            start_col[2] * sf + mid_col[2] * sf2)
+                             start_col[1] * sf + mid_col[1] * sf2,
+                             start_col[2] * sf + mid_col[2] * sf2)
             else:
                 sf = (256.0 - i) / 128.0
                 sf2 = (i - 128.0) / 128.0
                 colors[i] = (mid_col[0] * sf + end_col[0] * sf2,
-                            mid_col[1] * sf + end_col[1] * sf2,
-                            mid_col[2] * sf + end_col[2] * sf2)
+                             mid_col[1] * sf + end_col[1] * sf2,
+                             mid_col[2] * sf + end_col[2] * sf2)
         return colors
 
     def sample_to_viewport(self, freq, power, wx, wy):
@@ -472,7 +472,7 @@ class SimpleUI(object):
                         self.screen.set_at((x2, y+y2), c)
                         if max_y < y+y2:
                             max_y = y+y2
-                        #pygame.draw.rect(self.screen, c, (x2, y+y2, 2, 2))
+                            #pygame.draw.rect(self.screen, c, (x2, y+y2, 2, 2))
                     else:
                         self.screen.set_at((x+i, y), c)
                         #pygame.draw.rect(self.screen, c, (x+i, y, 2, 2))
@@ -488,30 +488,30 @@ class SimpleUI(object):
         self.pwr_time_data = []
 
 if __name__ == '__main__':
-     athss_queue = mp.Queue()
-     airtime_queue = mp.Queue()
-     scanner = AthSpectralScanner(interface=sys.argv[1])
-     airtimecalc = AirtimeCalculator(monitor_interface=sys.argv[1], output_queue=airtime_queue)
+    athss_queue = mp.Queue()
+    airtime_queue = mp.Queue()
+    scanner = AthSpectralScanner(interface=sys.argv[1])
+    airtimecalc = AirtimeCalculator(monitor_interface=sys.argv[1], output_queue=airtime_queue)
 
-     decoder = AthSpectralScanDecoder()
-     decoder.set_number_of_processes(1)
-     decoder.set_output_queue(athss_queue)
-     decoder.start()
+    decoder = AthSpectralScanDecoder()
+    decoder.set_number_of_processes(1)
+    decoder.set_output_queue(athss_queue)
+    decoder.start()
 
-     hub = DataHub(scanner=scanner, decoder=decoder)
-     scanner.set_spectral_short_repeat(0)
-     scanner.set_mode("background")
-     scanner.set_channel(1)
-     # Start to read from spectral_scan0
-     hub.start()
-     # Start to acquire dara
-     airtimecalc.start()
-     scanner.start()
+    hub = DataHub(scanner=scanner, decoder=decoder)
+    scanner.set_spectral_short_repeat(0)
+    scanner.set_mode("background")
+    scanner.set_channel(1)
+    # Start to read from spectral_scan0
+    hub.start()
+    # Start to acquire dara
+    airtimecalc.start()
+    scanner.start()
 
-     ui = SimpleUI(athscanner=scanner, ath_queue_in=athss_queue, airtime_queue_in=airtime_queue)
-     ui.main_loop()  # UI takes care of events
+    ui = SimpleUI(athscanner=scanner, ath_queue_in=athss_queue, airtime_queue_in=airtime_queue)
+    ui.main_loop()  # UI takes care of events
 
-     # Tear down hardware
-     scanner.stop()
-     hub.stop()
-     airtimecalc.stop()
+    # Tear down hardware
+    scanner.stop()
+    hub.stop()
+    airtimecalc.stop()
