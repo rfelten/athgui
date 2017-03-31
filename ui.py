@@ -499,9 +499,9 @@ if __name__ == '__main__':
      decoder.start()
 
      hub = DataHub(scanner=scanner, decoder=decoder)
+     scanner.set_spectral_short_repeat(0)
      scanner.set_mode("background")
      scanner.set_channel(1)
-
      # Start to read from spectral_scan0
      hub.start()
      # Start to acquire dara
