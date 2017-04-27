@@ -491,27 +491,23 @@ if __name__ == '__main__':
     athss_queue = mp.Queue()
     airtime_queue = mp.Queue()
     scanner = AthSpectralScanner(interface=sys.argv[1])
-    airtimecalc = AirtimeCalculator(monitor_interface=sys.argv[1], output_queue=airtime_queue)
-
-    decoder = AthSpectralScanDecoder()
-    decoder.set_number_of_processes(1)
-    decoder.set_output_queue(athss_queue)
-    decoder.start()
-
-    hub = DataHub(scanner=scanner, decoder=decoder)
     scanner.set_spectral_short_repeat(0)
     scanner.set_mode("background")
     scanner.set_channel(1)
-    # Start to read from spectral_scan0
+    airtimecalc = AirtimeCalculator(monitor_interface=sys.argv[1], output_queue=airtime_queue)
+    decoder = AthSpectralScanDecoder()
+    decoder.set_number_of_processes(1)
+    decoder.set_output_queue(athss_queue)
+    hub = DataHub(scanner=scanner, decoder=decoder)
+
+    decoder.start()
     hub.start()
-    # Start to acquire dara
     airtimecalc.start()
     scanner.start()
 
     ui = SimpleUI(athscanner=scanner, ath_queue_in=athss_queue, airtime_queue_in=airtime_queue)
-    ui.main_loop()  # UI takes care of events
+    ui.main_loop()  # UI takes care of events, blocking
 
-    # Tear down hardware
     scanner.stop()
     hub.stop()
     airtimecalc.stop()
